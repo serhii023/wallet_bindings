@@ -1,0 +1,35 @@
+[package]
+name = "wallet_bindings"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = [
+    # "staticlib",
+    "dylib",
+    "rlib",
+    # "lib"
+]
+
+[[bin]]
+name = "generate-headers"
+required-features = ["headers"] 
+
+[dependencies]
+# tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+# tracing = "0.1.44"
+
+rand = "0.8"
+rand_chacha = "0.3"
+rand_core = "0.6"
+
+frost-core = "0.6.0"
+pasta_curves = { version = "0.5.1" }
+reddsa = { version = "0.5.1", features = ["frost", "serde"] }
+safer-ffi = { version = "0.1.13", features = ["log"] }
+serde = "1.0.228"
+serde_core = "1.0.228"
+thiserror = "2.0.18"
+
+[features]
+headers = ["safer-ffi/headers"]

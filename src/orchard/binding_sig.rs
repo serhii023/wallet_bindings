@@ -1,8 +1,8 @@
-use safer_ffi::{self};
-use ::safer_ffi::prelude::*;
 use rand::thread_rng;
-use std::ffi::c_int;
+use safer_ffi::prelude::*;
 use safer_ffi::slice::slice_raw;
+use safer_ffi::{self};
+use std::ffi::c_int;
 // use reddsa::{Signature, SigningKey, VerificationKey, orchard};
 // use serde::{Serialize};
 
@@ -17,8 +17,8 @@ type Result<T> = std::result::Result<T, ExecutionError>;
 #[repr(C)]
 #[derive(Debug, Clone)]
 /// Wrapper for orchard signing key
-pub struct SigningKey{
-    bytes: [u8; 32]
+pub struct SigningKey {
+    bytes: [u8; 32],
 }
 
 impl SigningKey {
@@ -35,7 +35,7 @@ impl SigningKey {
     pub fn verification_key(&self) -> Result<VerificationKey> {
         let sk = self.key()?;
         let pk = reddsa::VerificationKey::<reddsa::orchard::Binding>::from(&sk);
-    
+
         Ok(VerificationKey { bytes: pk.into() })
     }
 }
@@ -43,8 +43,8 @@ impl SigningKey {
 #[derive_ReprC]
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct VerificationKey{
-    bytes: [u8; 32]
+pub struct VerificationKey {
+    bytes: [u8; 32],
 }
 
 impl VerificationKey {
@@ -53,18 +53,17 @@ impl VerificationKey {
     }
 
     pub fn verify(&self, msg: &[u8], signature: &Signature) -> Result<()> {
-        Ok(self.key()?.verify(
-            msg,
-            &OrchardSignature::from(signature.bytes)
-        )?)
+        Ok(self
+            .key()?
+            .verify(msg, &OrchardSignature::from(signature.bytes))?)
     }
 }
 
 #[derive_ReprC]
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct Signature{
-    bytes: [u8; 64]
+pub struct Signature {
+    bytes: [u8; 64],
 }
 
 #[ffi_export]
@@ -80,8 +79,8 @@ pub fn verification_key(sk: &SigningKey, vk: *mut VerificationKey) -> c_int {
         Ok(verification_key) => {
             unsafe { *vk = verification_key }
             0
-        },
-        Err(err) => c_int::from(err)
+        }
+        Err(err) => c_int::from(err),
     }
 }
 
@@ -93,11 +92,9 @@ pub fn sign_message(sk: SigningKey, msg: slice_raw<u8>, sig: &mut Signature) -> 
         Ok(signature) => {
             // unsafe { *sig = signature; }
             *sig = signature;
-            return 0
-        },
-        Err(err) => {
-            c_int::from(err)
+            return 0;
         }
+        Err(err) => c_int::from(err),
     }
 }
 
@@ -107,7 +104,7 @@ pub fn verify(pk: VerificationKey, msg: slice_raw<u8>, signature: &Signature) ->
 
     match pk.verify(msg_slice, &signature) {
         Ok(_) => 0,
-        Err(err) => c_int::from(err)
+        Err(err) => c_int::from(err),
     }
 }
 
@@ -130,11 +127,12 @@ fn example() -> Result<()> {
 
     // Deserialize and verify the signature.
     let sig: reddsa::Signature<reddsa::orchard::Binding> = sig_bytes.into();
-    assert!(
-    reddsa::VerificationKey::try_from(pk_bytes)
+    if reddsa::VerificationKey::try_from(pk_bytes)
         .and_then(|pk| pk.verify(msg, &sig))
-        .is_ok()
-    );
+        .is_err()
+    {
+        return Err(ExecutionError::Verification);
+    }
 
     Ok(())
 }

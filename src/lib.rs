@@ -1,5 +1,5 @@
-pub mod orchard;
 pub mod errors;
+pub mod orchard;
 
 // The following function is only necessary for the header generation.
 #[cfg(feature = "headers")]

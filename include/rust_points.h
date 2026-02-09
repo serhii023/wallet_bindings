@@ -14,69 +14,66 @@ extern "C" {
 #endif
 
 
-#include <stdbool.h>
-
-
 #include <stddef.h>
 #include <stdint.h>
 
 /** \brief
- *  Round2: Generate user's signature share.
- */
-int32_t
-frost_randomized_aggregate (
-    bool signing_package,
-    bool signature_shares_map,
-    bool pubkeys,
-    bool randomizer_params);
-
-typedef struct {
-    uint8_t idx[32];
-} uint8_32_array_t;
-
-/** \brief
  *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
  */
-typedef struct Vec_uint8_32_array {
+typedef struct Vec_uint8 {
     /** <No documentation available> */
-    uint8_32_array_t * ptr;
+    uint8_t * ptr;
 
     /** <No documentation available> */
     size_t len;
 
     /** <No documentation available> */
     size_t cap;
-} Vec_uint8_32_array_t;
+} Vec_uint8_t;
+
+typedef struct {
+    uint8_t idx[32];
+} uint8_32_array_t;
 
 /** <No documentation available> */
-typedef struct SecretShare {
+typedef struct IdentifiedData_Vec_uint8 {
     /** <No documentation available> */
     uint8_32_array_t identifier;
 
     /** <No documentation available> */
-    uint8_32_array_t secret;
+    Vec_uint8_t data;
+} IdentifiedData_Vec_uint8_t;
+
+/** \brief
+ *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
+ */
+typedef struct Vec_IdentifiedData_Vec_uint8 {
+    /** <No documentation available> */
+    IdentifiedData_Vec_uint8_t * ptr;
 
     /** <No documentation available> */
-    Vec_uint8_32_array_t commitment;
+    size_t len;
+
+    /** <No documentation available> */
+    size_t cap;
+} Vec_IdentifiedData_Vec_uint8_t;
+
+/** \brief
+ *  Round2: Generate user's signature share.
+ */
+int32_t
+frost_randomized_aggregate (
+    Vec_uint8_t const * signing_package,
+    Vec_IdentifiedData_Vec_uint8_t const * signature_shares,
+    Vec_uint8_t const * pubkeys,
+    uint8_32_array_t const * randomizer,
+    Vec_uint8_t * signature);
+
+/** <No documentation available> */
+typedef struct SecretShare {
+    /** <No documentation available> */
+    Vec_uint8_t bytes;
 } SecretShare_t;
-
-/** <No documentation available> */
-typedef struct SigningNonces {
-    /** <No documentation available> */
-    uint8_32_array_t hiding;
-
-    /** <No documentation available> */
-    uint8_32_array_t binding;
-} SigningNonces_t;
-
-/** <No documentation available> */
-typedef struct SigningCommitments {
-    /** <No documentation available> */
-    uint8_32_array_t hiding;
-
-    /** <No documentation available> */
-    uint8_32_array_t binding;
-} SigningCommitments_t;
 
 /** \brief
  *  Round1: Generate one nonce and one `SigningCommitments`` instance for each participant.
@@ -84,63 +81,42 @@ typedef struct SigningCommitments {
 int32_t
 frost_randomized_commit (
     SecretShare_t const * secret_share,
-    SigningNonces_t * signing_nonces,
-    SigningCommitments_t * signing_commitments);
-
-/** \brief
- *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
- */
-typedef struct Vec_SecretShare {
-    /** <No documentation available> */
-    SecretShare_t * ptr;
-
-    /** <No documentation available> */
-    size_t len;
-
-    /** <No documentation available> */
-    size_t cap;
-} Vec_SecretShare_t;
-
-typedef struct {
-    uint8_32_array_t idx[2];
-} uint8_32_array_2_array_t;
-
-/** \brief
- *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
- */
-typedef struct Vec_uint8_32_array_2_array {
-    /** <No documentation available> */
-    uint8_32_array_2_array_t * ptr;
-
-    /** <No documentation available> */
-    size_t len;
-
-    /** <No documentation available> */
-    size_t cap;
-} Vec_uint8_32_array_2_array_t;
+    Vec_uint8_t * signing_nonces,
+    Vec_uint8_t * signing_commitments,
+    IdentifiedData_Vec_uint8_t * identified_signing_commitments);
 
 /** <No documentation available> */
-typedef struct PublicKeyPackage {
-    /** \brief
-     *  Sequence of (member index,  public key) pairs.
-     */
-    Vec_uint8_32_array_2_array_t signer_pubkeys;
+typedef struct IdentifiedData_SecretShare {
+    /** <No documentation available> */
+    uint8_32_array_t identifier;
 
-    /** \brief
-     *  Group public key.
-     */
-    uint8_32_array_t group_public;
-} PublicKeyPackage_t;
+    /** <No documentation available> */
+    SecretShare_t data;
+} IdentifiedData_SecretShare_t;
+
+/** \brief
+ *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
+ */
+typedef struct Vec_IdentifiedData_SecretShare {
+    /** <No documentation available> */
+    IdentifiedData_SecretShare_t * ptr;
+
+    /** <No documentation available> */
+    size_t len;
+
+    /** <No documentation available> */
+    size_t cap;
+} Vec_IdentifiedData_SecretShare_t;
 
 /** \brief
  *  Wrapper for orchard signing key
  */
 typedef struct TrustedShares {
     /** <No documentation available> */
-    Vec_SecretShare_t shares;
+    Vec_IdentifiedData_SecretShare_t shares;
 
     /** <No documentation available> */
-    PublicKeyPackage_t public_key_package;
+    Vec_uint8_t public_key_package;
 } TrustedShares_t;
 
 /** <No documentation available> */
@@ -160,30 +136,13 @@ frost_randomized_new_randomizer (void);
  *  Round2: Generate user's signature share.
  */
 int32_t
-frost_randomized_sign_package (void);
-
-/** <No documentation available> */
-typedef struct SigningCommitmentsEntry {
-    /** <No documentation available> */
-    uint8_32_array_t identifier;
-
-    /** <No documentation available> */
-    SigningCommitments_t commitment;
-} SigningCommitmentsEntry_t;
-
-/** \brief
- *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
- */
-typedef struct Vec_SigningCommitmentsEntry {
-    /** <No documentation available> */
-    SigningCommitmentsEntry_t * ptr;
-
-    /** <No documentation available> */
-    size_t len;
-
-    /** <No documentation available> */
-    size_t cap;
-} Vec_SigningCommitmentsEntry_t;
+frost_randomized_sign_package (
+    Vec_uint8_t const * signing_package,
+    Vec_uint8_t const * nonces_to_use,
+    SecretShare_t const * key_package,
+    uint8_32_array_t const * randomizer,
+    Vec_uint8_t * signature_share,
+    IdentifiedData_Vec_uint8_t * identified_signature_share);
 
 /** \brief
  *  Like [`slice_ref`] and [`slice_mut`], but with any lifetime attached
@@ -226,12 +185,9 @@ typedef struct slice_raw_uint8 {
  */
 int32_t
 frost_randomized_signing_package_new (
-    Vec_SigningCommitmentsEntry_t signing_commitments,
-    slice_raw_uint8_t message);
-
-typedef struct {
-    uint8_t idx[64];
-} uint8_64_array_t;
+    Vec_IdentifiedData_Vec_uint8_t signing_commitments,
+    slice_raw_uint8_t message,
+    Vec_uint8_t * signature_package);
 
 /** \brief
  *  Round2: Generate user's signature share.
@@ -239,9 +195,9 @@ typedef struct {
 int32_t
 frost_randomized_verify (
     slice_raw_uint8_t message,
-    uint8_64_array_t group_signature,
-    PublicKeyPackage_t const * public_key_package,
-    uint8_32_array_t randomizer);
+    Vec_uint8_t const * group_signature,
+    Vec_uint8_t const * public_key_package,
+    uint8_32_array_t const * randomizer);
 
 /** \brief
  *  Wrapper for orchard signing key
@@ -254,6 +210,10 @@ typedef struct SigningKey {
 /** <No documentation available> */
 SigningKey_t
 new_signing_key (void);
+
+typedef struct {
+    uint8_t idx[64];
+} uint8_64_array_t;
 
 /** <No documentation available> */
 typedef struct Signature {

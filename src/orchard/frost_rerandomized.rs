@@ -1,20 +1,19 @@
 use core::slice;
 use frost_core::{
-    Field, Signature,
-    frost::{
-        keys::{SigningShare, VerifiableSecretSharingCommitment, VerifyingShare},
-        round1::NonceCommitment,
-    },
+    Field, Signature, SigningPackage,
+    keys::{SigningShare, VerifiableSecretSharingCommitment, VerifyingShare},
+    round1::NonceCommitment,
 };
-use frost_rerandomized::frost_core::VerifyingKey;
+use frost_rerandomized::{RandomizedParams, Randomizer, frost_core::VerifyingKey};
 use rand::thread_rng;
 use reddsa::frost::redpallas::{
-    Identifier, PallasBlake2b512, SigningPackage,
+    Identifier, PallasBlake2b512,
     keys::{self, IdentifierList},
     round1, round2,
 };
 use reddsa::frost::redpallas::{PallasGroup, PallasScalarField};
 use safer_ffi::{prelude::*, slice::slice_raw};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_int;
 
@@ -22,161 +21,34 @@ use crate::errors::ExecutionError;
 
 // type OrchardSignature = reddsa::Signature<reddsa::orchard::Binding>;
 // type OrchardSigningKey = reddsa::SigningKey<reddsa::orchard::Binding>;
-type OrchardVerificationKey = reddsa::VerificationKey<reddsa::orchard::Binding>;
+// type OrchardVerificationKey = reddsa::VerificationKey<reddsa::orchard::Binding>;
 type OrchardSigningPackage = reddsa::frost::redpallas::SigningPackage;
 type OrchardRandomizedParams = frost_rerandomized::RandomizedParams<PallasBlake2b512>;
+type OrchardPublicKeyPackage = keys::PublicKeyPackage;
 type Result<T> = std::result::Result<T, ExecutionError>;
 
 #[derive_ReprC]
 #[repr(C)]
 #[derive(Debug)]
 pub struct SecretShare {
-    identifier: [u8; 32],
-    secret: [u8; 32],
-    commitment: safer_ffi::Vec<[u8; 32]>,
+    bytes: safer_ffi::Vec<u8>,
 }
 
-impl From<keys::SecretShare> for SecretShare {
-    fn from(share: keys::SecretShare) -> SecretShare {
-        let identifier: [u8; 32] = share.identifier().serialize();
-        let secret = share.secret().serialize();
-        let commitment = share.commitment().serialize().into();
+impl TryFrom<&keys::SecretShare> for SecretShare {
+    type Error = ExecutionError;
 
-        SecretShare {
-            identifier,
-            secret,
-            commitment,
-        }
+    fn try_from(share: &keys::SecretShare) -> Result<SecretShare> {
+        Ok(SecretShare {
+            bytes: share.serialize()?.into()
+        })
     }
 }
 
 impl TryFrom<&SecretShare> for keys::SecretShare {
     type Error = ExecutionError;
 
-    fn try_from(share: &SecretShare) -> Result<keys::SecretShare> {
-        let identifier = Identifier::deserialize(&share.identifier)?;
-        let value = SigningShare::deserialize(share.secret)?;
-        let commitment = VerifiableSecretSharingCommitment::deserialize(share.commitment.to_vec())?;
-
-        Ok(keys::SecretShare::new(identifier, value, commitment))
-    }
-}
-
-impl SecretShare {
-    pub fn randomized_commit(&self) -> Result<(SigningNonces, SigningCommitments)> {
-        let secret_share = keys::SecretShare::try_from(self)?;
-        let key_package = keys::KeyPackage::try_from(secret_share)?;
-
-        let (nonce, commitment) = round1::commit(
-            // participant_identifier,
-            key_package.secret_share(),
-            &mut thread_rng(),
-        );
-
-        Ok((
-            SigningNonces::from(nonce),
-            SigningCommitments::from(commitment),
-        ))
-    }
-}
-
-#[derive_ReprC]
-#[repr(C)]
-#[derive(Debug)]
-pub struct SigningCommitments {
-    hiding: [u8; 32],
-    binding: [u8; 32],
-}
-
-impl From<round1::SigningCommitments> for SigningCommitments {
-    fn from(commitment: round1::SigningCommitments) -> SigningCommitments {
-        SigningCommitments {
-            hiding: commitment.hiding().serialize(),
-            binding: commitment.binding().serialize(),
-        }
-    }
-}
-
-impl TryFrom<&SigningCommitments> for round1::SigningCommitments {
-    type Error = ExecutionError;
-
-    fn try_from(commitment: &SigningCommitments) -> Result<round1::SigningCommitments> {
-        Ok(round1::SigningCommitments::new(
-            NonceCommitment::deserialize(commitment.hiding)?,
-            NonceCommitment::deserialize(commitment.binding)?,
-        ))
-    }
-}
-
-#[derive_ReprC]
-#[repr(C)]
-#[derive(Debug)]
-pub struct SigningCommitmentsEntry {
-    identifier: [u8; 32],           // Serialized Identifier
-    commitment: SigningCommitments, // Your commitment struct
-}
-
-#[derive_ReprC]
-#[repr(C)]
-#[derive(Debug)]
-pub struct SigningNonces {
-    hiding: [u8; 32],
-    binding: [u8; 32],
-}
-
-impl From<round1::SigningNonces> for SigningNonces {
-    fn from(nonce: round1::SigningNonces) -> SigningNonces {
-        SigningNonces {
-            hiding: nonce.hiding().serialize(),
-            binding: nonce.binding().serialize(),
-        }
-    }
-}
-
-#[derive_ReprC]
-#[repr(C)]
-#[derive(Debug)]
-pub struct PublicKeyPackage {
-    /// Sequence of (member index,  public key) pairs.
-    signer_pubkeys: safer_ffi::Vec<[[u8; 32]; 2]>,
-    /// Group public key.
-    group_public: [u8; 32],
-}
-
-impl From<keys::PublicKeyPackage> for PublicKeyPackage {
-    fn from(package: keys::PublicKeyPackage) -> PublicKeyPackage {
-        let group_public = package.group_public().serialize();
-
-        let mut pubkeys_list = Vec::new();
-        for (i, pubkey) in package.signer_pubkeys() {
-            pubkeys_list.push([i.serialize(), pubkey.serialize()]);
-        }
-
-        PublicKeyPackage {
-            signer_pubkeys: pubkeys_list.into(),
-            group_public,
-        }
-    }
-}
-
-impl TryFrom<&PublicKeyPackage> for keys::PublicKeyPackage {
-    type Error = ExecutionError;
-
-    fn try_from(package: &PublicKeyPackage) -> Result<keys::PublicKeyPackage> {
-        let group_public = VerifyingKey::deserialize(package.group_public)?;
-
-        let pubkeys_raw_list = package.signer_pubkeys.to_vec();
-        let mut signer_pubkeys = HashMap::new();
-        for [i_bytes, key_bytes] in pubkeys_raw_list {
-            signer_pubkeys.insert(
-                Identifier::deserialize(&i_bytes)?,
-                VerifyingShare::deserialize(key_bytes)?,
-            );
-        }
-
-        println!("wtf");
-
-        Ok(keys::PublicKeyPackage::new(signer_pubkeys, group_public))
+    fn try_from(share: &SecretShare) -> Result<keys::SecretShare> {       
+        Ok(keys::SecretShare::deserialize(&share.bytes)?)
     }
 }
 
@@ -185,8 +57,44 @@ impl TryFrom<&PublicKeyPackage> for keys::PublicKeyPackage {
 #[derive(Debug)]
 /// Wrapper for orchard signing key
 pub struct TrustedShares {
-    shares: safer_ffi::Vec<SecretShare>,
-    public_key_package: PublicKeyPackage,
+    shares: safer_ffi::Vec<IdentifiedData<SecretShare>>,
+    public_key_package: safer_ffi::Vec<u8>,
+}
+
+#[derive_ReprC]
+#[repr(C)]
+#[derive(Debug)]
+pub struct IdentifiedData<T> {
+    identifier: [u8; 32],
+    data: T,
+}
+
+impl<T: Clone> IdentifiedData<T> {
+    pub fn into_parts(&self) -> Result<(Identifier, T)> {
+        let id: frost_core::Identifier<PallasBlake2b512> =
+            Identifier::deserialize(&self.identifier)?;
+
+        Ok((id, self.data.clone()))
+    }
+}
+
+impl<T> From<(&Identifier, T)> for IdentifiedData<T> {
+    fn from((id, data): (&Identifier, T)) -> Self {
+        Self {
+            identifier: id.to_scalar().into(),
+            data,
+        }
+    }
+}
+
+impl<T: Clone> TryFrom<&IdentifiedData<T>> for (Identifier, T) {
+    type Error = ExecutionError;
+
+    fn try_from(value: &IdentifiedData<T>) -> Result<Self> {
+        let id = Identifier::deserialize(&value.identifier)?;
+
+        Ok((id, value.data.clone()))
+    }
 }
 
 #[ffi_export]
@@ -195,74 +103,106 @@ pub fn frost_randomized_keygen_dealer(
     min_signers: u16,
     trusted_share: &mut TrustedShares,
 ) -> c_int {
-    let mut rng = thread_rng();
-    let (shares, pubkeys) = match keys::generate_with_dealer(
-        max_signers,
-        min_signers,
-        IdentifierList::Default,
-        &mut rng,
-    ) {
-        Ok((shares, pubkeys)) => (shares, pubkeys),
-        Err(err) => return c_int::from(ExecutionError::from(err)),
-    };
-
-    let mut shares_list = Vec::new();
-    for (_, share) in shares {
-        shares_list.push(SecretShare::from(share));
-    }
-
-    *trusted_share = TrustedShares {
-        shares: shares_list.into(),
-        public_key_package: PublicKeyPackage::from(pubkeys),
-    };
-
-    0
-}
-
-#[ffi_export]
-/// Round1: Generate one nonce and one `SigningCommitments`` instance for each participant.
-pub fn frost_randomized_commit(
-    secret_share: &SecretShare,
-    signing_nonces: &mut SigningNonces,
-    signing_commitments: &mut SigningCommitments,
-) -> c_int {
-    match secret_share.randomized_commit() {
-        Ok((nonces, commitments)) => {
-            *signing_nonces = nonces;
-            *signing_commitments = commitments;
+    match inner_frost_randomized_keygen_dealer(max_signers, min_signers) {
+        Ok(shares) => {
+            *trusted_share = shares;
             0
         }
         Err(err) => c_int::from(err),
     }
 }
 
+fn inner_frost_randomized_keygen_dealer(
+    max_signers: u16,
+    min_signers: u16,
+) -> Result<TrustedShares> {
+    let mut rng = thread_rng();
+    let (shares, pubkey) =
+        keys::generate_with_dealer(max_signers, min_signers, IdentifierList::Default, &mut rng)?;
+
+    let mut shares_list = Vec::new();
+    for (_, share) in shares {
+        let secret_share = SecretShare::try_from(&share)?;
+        shares_list.push(IdentifiedData { identifier: share.identifier().to_scalar().into(), data: secret_share });
+    }
+
+    Ok(TrustedShares {
+        shares: shares_list.into(),
+        public_key_package: pubkey.serialize()?.into(),
+    })
+}
+
 #[ffi_export]
-/// Round1: Generate signing package for the given message and user secret share.
-pub fn frost_randomized_signing_package_new(
-    signing_commitments: safer_ffi::Vec<SigningCommitmentsEntry>,
-    message: slice_raw<u8>,
+/// Round1: Generate one nonce and one `SigningCommitments`` instance for each participant.
+pub fn frost_randomized_commit(
+    secret_share: &SecretShare,
+    signing_nonces: &mut safer_ffi::Vec<u8>,
+    signing_commitments: &mut safer_ffi::Vec<u8>,
+    identified_signing_commitments: &mut IdentifiedData<safer_ffi::Vec<u8>>,
 ) -> c_int {
-    match internal_frost_randomized_signing_package_new(signing_commitments, message) {
-        Ok(signature_package) => 0,
+    match inner_frost_randomized_commit(secret_share) {
+        Ok((nonces, commitments, identified_commitments)) => {
+            *signing_nonces = nonces.into();
+            *signing_commitments = commitments.into();
+            *identified_signing_commitments = identified_commitments;
+            0
+        }
         Err(err) => c_int::from(err),
     }
 }
 
-fn internal_frost_randomized_signing_package_new(
-    signing_commitments: safer_ffi::Vec<SigningCommitmentsEntry>,
+fn inner_frost_randomized_commit(
+    secret_share: &SecretShare,
+) -> Result<(Vec<u8>, Vec<u8>, IdentifiedData<safer_ffi::Vec<u8>>)> {
+    let secret_share = keys::SecretShare::deserialize(&secret_share.bytes)?;
+    let identifier: [u8; 32] = secret_share.identifier().clone().to_scalar().into();
+
+    let key_package = keys::KeyPackage::try_from(secret_share)?;
+    let (nonce, commitment) = round1::commit(
+        // participant_identifier,
+        key_package.signing_share(),
+        &mut thread_rng(),
+    );
+
+    let commitment_bytes = commitment.serialize()?;
+
+    let identified_commitments = IdentifiedData {
+        identifier,
+        data: commitment_bytes.clone().into() };
+
+    Ok((nonce.serialize()?, commitment_bytes, identified_commitments))
+}
+
+#[ffi_export]
+/// Round1: Generate signing package for the given message and user secret share.
+pub fn frost_randomized_signing_package_new(
+    signing_commitments: safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
     message: slice_raw<u8>,
-) -> Result<OrchardSigningPackage> {
+    signature_package: &mut safer_ffi::Vec<u8>,
+) -> c_int {
+    match inner_frost_randomized_signing_package_new(signing_commitments, message) {
+        Ok(sig_package) => {
+            *signature_package = sig_package.into();
+            0
+        }
+        Err(err) => c_int::from(err),
+    }
+}
+
+fn inner_frost_randomized_signing_package_new(
+    signing_commitments: safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
+    message: slice_raw<u8>,
+) -> Result<Vec<u8>> {
     let mut comms = BTreeMap::new();
     for entry in signing_commitments.as_ref().iter() {
-        let identifier = Identifier::deserialize(&entry.identifier)?;
-        let commitment = round1::SigningCommitments::try_from(&entry.commitment)?;
-        comms.insert(identifier, commitment);
+        let (id, comm_bytes) = <(Identifier, safer_ffi::Vec<u8>)>::try_from(entry)?;
+        let commitment = round1::SigningCommitments::deserialize(&comm_bytes)?;
+        comms.insert(id, commitment);
     }
 
     let package = OrchardSigningPackage::new(comms, &unsafe { message.as_ref() });
 
-    todo!()
-    // Ok(())
+    Ok(package.serialize()?)
 }
 
 #[ffi_export]
@@ -273,28 +213,101 @@ pub fn frost_randomized_new_randomizer() -> [u8; 32] {
 
 #[ffi_export]
 /// Round2: Generate user's signature share.
-pub fn frost_randomized_sign_package() -> c_int {
-    todo!()
+pub fn frost_randomized_sign_package(
+    signing_package: &safer_ffi::Vec<u8>,
+    nonces_to_use: &safer_ffi::Vec<u8>,
+    key_package: &SecretShare,
+    randomizer: &[u8; 32],
+    signature_share: &mut safer_ffi::Vec<u8>,
+    identified_signature_share: &mut IdentifiedData<safer_ffi::Vec<u8>>
+) -> c_int {
+    match internal_frost_randomized_sign_package(signing_package, nonces_to_use, key_package, randomizer) {
+        Ok((share, identified_share)) => {
+            *signature_share = share.into();
+            *identified_signature_share = identified_share;
+            0
+        },
+        Err(err) => {
+            eprintln!("{}", err.to_string());
+            c_int::from(err)
+        }
+    }
+}
+
+fn internal_frost_randomized_sign_package(
+    signing_package: &safer_ffi::Vec<u8>,
+    nonces_to_use: &safer_ffi::Vec<u8>,
+    key_package: &SecretShare,
+    randomizer: &[u8; 32],
+) -> Result<(Vec<u8>, IdentifiedData<safer_ffi::Vec<u8>>)> {
+    let key_package = keys::KeyPackage::try_from(keys::SecretShare::try_from(key_package)?)?;
+    let id: [u8; 32] = key_package.identifier().to_scalar().into();
+    let signature_share = round2::sign(
+        &SigningPackage::deserialize(signing_package)?,
+        &round1::SigningNonces::deserialize(nonces_to_use)?,
+        &key_package,
+        Randomizer::from_scalar(PallasScalarField::deserialize(randomizer)?),
+    )?;
+
+    let serialized_signature_share = signature_share.serialize();
+    let identified_signature = IdentifiedData{identifier: id, data: serialized_signature_share.clone().into()};
+
+    Ok((serialized_signature_share, identified_signature))
 }
 
 #[ffi_export]
 /// Round2: Generate user's signature share.
 pub fn frost_randomized_aggregate(
-    signing_package: bool,
-    signature_shares_map: bool,
-    pubkeys: bool,
-    randomizer_params: bool,
+    signing_package: &safer_ffi::Vec<u8>,
+    signature_shares: &safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
+    pubkeys: &safer_ffi::Vec<u8>,
+    randomizer: &[u8; 32],
+    signature: &mut safer_ffi::Vec<u8>,
 ) -> c_int {
-    todo!()
+    match inner_frost_randomized_aggregate(signing_package, signature_shares, pubkeys, randomizer) {
+        Ok(sig) => {
+            *signature = sig.into();
+            0
+        }
+        Err(err) => c_int::from(err),
+    }
+}
+
+fn inner_frost_randomized_aggregate(
+    signing_package: &safer_ffi::Vec<u8>,
+    signature_shares: &safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
+    pubkeys: &safer_ffi::Vec<u8>,
+    randomizer: &[u8; 32],
+) -> Result<Vec<u8>> {
+    let public_package = OrchardPublicKeyPackage::deserialize(&pubkeys)?;
+    let randomized_params = RandomizedParams::from_randomizer(
+        public_package.verifying_key(),
+        Randomizer::from_scalar(PallasScalarField::deserialize(randomizer)?),
+    );
+
+    let mut shares = BTreeMap::new();
+    for entry in signature_shares.iter() {
+        let (id, share) = entry.into_parts()?;
+        shares.insert(id, round2::SignatureShare::deserialize(&share)?);
+    }
+
+    let signature = frost_rerandomized::aggregate(
+        &OrchardSigningPackage::deserialize(signing_package)?,
+        &shares,
+        &public_package,
+        &randomized_params,
+    )?;
+
+    Ok(signature.serialize()?)
 }
 
 #[ffi_export]
 /// Round2: Generate user's signature share.
 pub fn frost_randomized_verify(
     message: slice_raw<u8>,
-    group_signature: [u8; 64],
-    public_key_package: &PublicKeyPackage,
-    randomizer: [u8; 32],
+    group_signature: &safer_ffi::Vec<u8>,
+    public_key_package: &safer_ffi::Vec<u8>,
+    randomizer: &[u8; 32],
 ) -> c_int {
     match internal_frost_randomized_verify(message, group_signature, public_key_package, randomizer)
     {
@@ -305,19 +318,19 @@ pub fn frost_randomized_verify(
 
 fn internal_frost_randomized_verify(
     message: slice_raw<u8>,
-    group_signature: [u8; 64],
-    public_key_package: &PublicKeyPackage,
-    randomizer: [u8; 32],
+    group_signature: &safer_ffi::Vec<u8>,
+    public_key_package: &safer_ffi::Vec<u8>,
+    randomizer: &[u8; 32],
 ) -> Result<()> {
     let randomizer_params = OrchardRandomizedParams::from_randomizer(
-        &keys::PublicKeyPackage::try_from(public_key_package)?,
-        PallasScalarField::deserialize(&randomizer)?,
+        OrchardPublicKeyPackage::deserialize(&public_key_package)?.verifying_key(),
+        Randomizer::from_scalar(PallasScalarField::deserialize(&randomizer)?),
     );
 
     let signature = Signature::deserialize(group_signature)?;
 
     if randomizer_params
-        .randomized_group_public_key()
+        .randomized_verifying_key()
         .verify(&unsafe { message.as_ref() }, &signature)
         .is_err()
     {

@@ -44,6 +44,15 @@ typedef struct IdentifiedData_Vec_uint8 {
     Vec_uint8_t data;
 } IdentifiedData_Vec_uint8_t;
 
+/** <No documentation available> */
+int32_t
+frost_dkg_part1 (
+    uint16_t participant_identifier,
+    uint16_t max_signers,
+    uint16_t min_signers,
+    Vec_uint8_t * round1_secret_package,
+    IdentifiedData_Vec_uint8_t * round1_package);
+
 /** \brief
  *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
  */
@@ -58,6 +67,38 @@ typedef struct Vec_IdentifiedData_Vec_uint8 {
     size_t cap;
 } Vec_IdentifiedData_Vec_uint8_t;
 
+/** <No documentation available> */
+int32_t
+frost_dkg_part2 (
+    Vec_uint8_t const * round1_secret_package,
+    Vec_IdentifiedData_Vec_uint8_t const * round1_packages,
+    Vec_uint8_t * round2_secret_package,
+    Vec_IdentifiedData_Vec_uint8_t * round2_packages);
+
+/** <No documentation available> */
+typedef struct KeyPackage {
+    /** <No documentation available> */
+    Vec_uint8_t bytes;
+} KeyPackage_t;
+
+/** <No documentation available> */
+typedef struct IdentifiedData_KeyPackage {
+    /** <No documentation available> */
+    uint8_32_array_t identifier;
+
+    /** <No documentation available> */
+    KeyPackage_t data;
+} IdentifiedData_KeyPackage_t;
+
+/** <No documentation available> */
+int32_t
+frost_dkg_part3 (
+    Vec_uint8_t const * round2_secret_package,
+    Vec_IdentifiedData_Vec_uint8_t const * round1_packages,
+    Vec_IdentifiedData_Vec_uint8_t const * round2_packages,
+    IdentifiedData_KeyPackage_t * key_package,
+    Vec_uint8_t * pubkey_package);
+
 /** \brief
  *  Round2: Generate user's signature share.
  */
@@ -69,51 +110,37 @@ frost_randomized_aggregate (
     uint8_32_array_t const * randomizer,
     Vec_uint8_t * signature);
 
-/** <No documentation available> */
-typedef struct SecretShare {
-    /** <No documentation available> */
-    Vec_uint8_t bytes;
-} SecretShare_t;
-
 /** \brief
  *  Round1: Generate one nonce and one `SigningCommitments`` instance for each participant.
  */
 int32_t
 frost_randomized_commit (
-    SecretShare_t const * secret_share,
+    uint16_t identifier,
+    KeyPackage_t const * key_package,
     Vec_uint8_t * signing_nonces,
     Vec_uint8_t * signing_commitments,
     IdentifiedData_Vec_uint8_t * identified_signing_commitments);
 
-/** <No documentation available> */
-typedef struct IdentifiedData_SecretShare {
-    /** <No documentation available> */
-    uint8_32_array_t identifier;
-
-    /** <No documentation available> */
-    SecretShare_t data;
-} IdentifiedData_SecretShare_t;
-
 /** \brief
  *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
  */
-typedef struct Vec_IdentifiedData_SecretShare {
+typedef struct Vec_IdentifiedData_KeyPackage {
     /** <No documentation available> */
-    IdentifiedData_SecretShare_t * ptr;
+    IdentifiedData_KeyPackage_t * ptr;
 
     /** <No documentation available> */
     size_t len;
 
     /** <No documentation available> */
     size_t cap;
-} Vec_IdentifiedData_SecretShare_t;
+} Vec_IdentifiedData_KeyPackage_t;
 
 /** \brief
  *  Wrapper for orchard signing key
  */
 typedef struct TrustedShares {
     /** <No documentation available> */
-    Vec_IdentifiedData_SecretShare_t shares;
+    Vec_IdentifiedData_KeyPackage_t key_packages;
 
     /** <No documentation available> */
     Vec_uint8_t public_key_package;
@@ -139,7 +166,7 @@ int32_t
 frost_randomized_sign_package (
     Vec_uint8_t const * signing_package,
     Vec_uint8_t const * nonces_to_use,
-    SecretShare_t const * key_package,
+    KeyPackage_t const * key_package,
     uint8_32_array_t const * randomizer,
     Vec_uint8_t * signature_share,
     IdentifiedData_Vec_uint8_t * identified_signature_share);
@@ -198,6 +225,18 @@ frost_randomized_verify (
     Vec_uint8_t const * group_signature,
     Vec_uint8_t const * public_key_package,
     uint8_32_array_t const * randomizer);
+
+/** <No documentation available> */
+uint16_t
+identified_data_id_as_u16 (
+    IdentifiedData_Vec_uint8_t const * data);
+
+/** <No documentation available> */
+int32_t
+identified_data_new_u16 (
+    uint16_t id,
+    Vec_uint8_t const * data,
+    IdentifiedData_Vec_uint8_t * identified_data);
 
 /** \brief
  *  Wrapper for orchard signing key

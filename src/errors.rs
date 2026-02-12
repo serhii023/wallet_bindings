@@ -18,24 +18,6 @@ pub enum ExecutionError {
     FrostCoreFieldError(#[from] frost_core::FieldError),
 }
 
-// impl From<reddsa::Error> for ExecutionError {
-//     fn from(value: reddsa::Error) -> Self {
-//         Self::Serialization(value.to_string())
-//     }
-// }
-
-// impl<C: Ciphersuite> From<frost_core::Error<C>> for ExecutionError {
-//     fn from(value: frost_core::Error<C>) -> Self {
-//         Self::Serialization(value.to_string())
-//     }
-// }
-
-// impl From<frost_core::FieldError> for ExecutionError {
-//     fn from(value: frost_core::FieldError) -> Self {
-//         Self::Serialization(value.to_string())
-//     }
-// }
-
 impl From<ExecutionError> for c_int {
     fn from(err: ExecutionError) -> c_int {
         match err {

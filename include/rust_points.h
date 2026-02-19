@@ -238,6 +238,69 @@ identified_data_new_u16 (
     Vec_uint8_t const * data,
     IdentifiedData_Vec_uint8_t * identified_data);
 
+/** <No documentation available> */
+int32_t
+import_account_ufvk (void);
+
+/** <No documentation available> */
+int32_t
+init_cache_db (void);
+
+/** <No documentation available> */
+/** \remark Has the same ABI as `uint8_t` **/
+#ifdef DOXYGEN
+typedef
+#endif
+enum LogLevel {
+    /** <No documentation available> */
+    LOG_LEVEL_OFF = 0,
+    /** <No documentation available> */
+    LOG_LEVEL_ERROR,
+    /** <No documentation available> */
+    LOG_LEVEL_WARNING,
+    /** <No documentation available> */
+    LOG_LEVEL_INFO,
+    /** <No documentation available> */
+    LOG_LEVEL_DEBUG,
+}
+#ifndef DOXYGEN
+; typedef uint8_t
+#endif
+LogLevel_t;
+
+/** <No documentation available> */
+void
+init_rust_logging (
+    LogLevel_t level);
+
+/** \brief
+ *  The enumeration of known Zcash networks.
+ */
+/** \remark Has the same ABI as `uint8_t` **/
+#ifdef DOXYGEN
+typedef
+#endif
+enum Network {
+    /** \brief
+     *  Zcash Mainnet.
+     */
+    NETWORK_MAIN_NETWORK = 0,
+    /** \brief
+     *  Zcash Testnet.
+     */
+    NETWORK_TEST_NETWORK,
+}
+#ifndef DOXYGEN
+; typedef uint8_t
+#endif
+Network_t;
+
+/** <No documentation available> */
+int32_t
+init_wallet_db (
+    char const * path,
+    Network_t network);
+
 /** \brief
  *  Wrapper for orchard signing key
  */
@@ -249,6 +312,23 @@ typedef struct SigningKey {
 /** <No documentation available> */
 SigningKey_t
 new_signing_key (void);
+
+/** <No documentation available> */
+int32_t
+read_pczt_signining_inputs (void);
+
+/** <No documentation available> */
+int32_t
+run_sync (
+    char const * host,
+    uint16_t port,
+    char const * fsblockdb_root,
+    Network_t network,
+    char const * db_path);
+
+/** <No documentation available> */
+int32_t
+send_from_orchard (void);
 
 typedef struct {
     uint8_t idx[64];
@@ -285,6 +365,10 @@ verify (
     VerificationKey_t pk,
     slice_raw_uint8_t msg,
     Signature_t const * signature);
+
+/** <No documentation available> */
+int32_t
+write_pczt_signing_outputs (void);
 
 
 #ifdef __cplusplus

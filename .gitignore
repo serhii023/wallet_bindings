@@ -24,5 +24,7 @@ target
 # Added by cargo
 
 /target
+/test_data
 
 .DS_Store
+.env

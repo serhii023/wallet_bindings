@@ -7,15 +7,19 @@ use safer_ffi::derive_ReprC;
 use std::{
     fmt,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 use tokio::{fs::File, io::AsyncWriteExt, task::JoinHandle};
-use tonic::transport::{Channel, ClientTlsConfig};
+use tonic::{
+    client,
+    transport::{Channel, ClientTlsConfig},
+};
 use tracing::{debug, error, info};
 use zcash_address::ZcashAddress;
 
 use zcash_client_backend::{
     data_api::{
-        self, Account, AccountBirthday, WalletRead, WalletWrite,
+        self, Account, AccountBirthday, AccountPurpose, WalletRead, WalletWrite,
         chain::{BlockSource, ChainState, scan_cached_blocks},
         scanning::{ScanPriority, ScanRange},
         wallet::{
@@ -51,6 +55,8 @@ use zcash_primitives::{
 };
 
 use zcash_client_backend::data_api::chain::error::Error as ChainError;
+
+use crate::light_client::sync::Server;
 
 const BLOCKS_FOLDER: &str = "blocks";
 const BATCH_SIZE: u32 = 10_000;
@@ -108,15 +114,65 @@ pub(crate) fn init_blockmeta_db<F: AsRef<Path>>(fsblockdb_root: F) -> eyre::Resu
     Ok(block_meta_db)
 }
 
-async fn create_orchard_transaction<P: Parameters>(
-    wallet_db: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+pub(crate) async fn import_account_ufvk<'a, F: AsRef<Path>, P: Parameters>(
+    db_path: F,
     params: &P,
-    ufvk: UnifiedFullViewingKey,
+    server: Server<'a>,
+    account_name: &str,
+    encoded_ufvk: &str,
+    birthday_height: u64,
+) -> eyre::Result<()> {
+    let mut wallet_db = WalletDb::for_path(db_path, params, SystemClock, rand::rngs::OsRng)?;
+
+    let ufvk = UnifiedFullViewingKey::decode(params, encoded_ufvk)
+        .map_err(|err| eyre!("Invalid UFVK: {err:?}"))?;
+
+    let mut client = server.connect_direct().await?;
+
+    let request = service::BlockId {
+        height: birthday_height,
+        hash: vec![],
+    };
+    let response_state = client
+        .get_tree_state(request)
+        .await
+        .unwrap()
+        .into_inner()
+        .to_chain_state()
+        .unwrap();
+
+    let birthday = AccountBirthday::from_parts(response_state, None);
+
+    let purpose = AccountPurpose::ViewOnly;
+    wallet_db.import_account_ufvk(account_name, &ufvk, &birthday, purpose, None)?;
+
+    Ok(())
+}
+
+pub(crate) async fn create_orchard_transaction<F: AsRef<Path>, P: Parameters>(
+    path: F,
+    params: &P,
+    encoded_ufvk: &str,
     amount_zatoshis: u64,
-    recipient_address: ZcashAddress,
-    memo: Option<MemoBytes>,
+    recipient_address: &str,
+    // memo: Option<&[u8]>,
+    memo: &[u8],
 ) -> eyre::Result<Pczt> {
     let change_memo = None;
+
+    let mut wallet_db = WalletDb::for_path(path, params, SystemClock, rand::rngs::OsRng)?;
+
+    let ufvk = UnifiedFullViewingKey::decode(params, encoded_ufvk)
+        .map_err(|err| eyre!("Invalid UFVK: {err:?}"))?;
+
+    let recipient_address = ZcashAddress::from_str(recipient_address)
+        .map_err(|err| eyre!("Invalid unified address: {err:?}"))?;
+
+    let memo = if memo.is_empty() {
+        None
+    } else {
+        Some(MemoBytes::from_bytes(memo)?)
+    };
 
     let Some(account) = wallet_db.get_account_for_ufvk(&ufvk)? else {
         return Err(eyre!("Unknown ufvk".to_string()));
@@ -138,7 +194,7 @@ async fn create_orchard_transaction<P: Parameters>(
     );
     let proposal =
         propose_transfer::<_, _, _, _, zcash_client_sqlite::wallet::commitment_tree::Error>(
-            wallet_db,
+            &mut wallet_db,
             params,
             account_id,
             &GreedyInputSelector::default(),
@@ -149,7 +205,7 @@ async fn create_orchard_transaction<P: Parameters>(
         .unwrap();
 
     let pczt = create_pczt_from_proposal::<_, _, (), _, (), _>(
-        wallet_db,
+        &mut wallet_db,
         params,
         account_id,
         OvkPolicy::Sender,
@@ -160,14 +216,19 @@ async fn create_orchard_transaction<P: Parameters>(
     Ok(pczt)
 }
 
-async fn broadcast_transaction<P: Parameters + Send + 'static>(
-    client: &mut CompactTxStreamerClient<Channel>,
-    pczt: Pczt,
-    wallet_db: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+pub(crate) async fn broadcast_transaction<'a, P: Parameters + Send + 'static, F: AsRef<Path>>(
+    server: Server<'a>,
+    pczt_bytes: &[u8],
+    path: F,
+    params: &P,
 ) -> eyre::Result<()> {
+    let mut client = server.connect_direct().await?;
+    let pczt = Pczt::parse(pczt_bytes).map_err(|err| eyre!("Failed to parse Pczt: {err:?}"))?;
+    let mut wallet_db = WalletDb::for_path(path, params, SystemClock, rand::rngs::OsRng)?;
+
     // Extract the final transaction and store it in wallet_db
     let txid = extract_and_store_transaction_from_pczt::<_, ()>(
-        wallet_db,
+        &mut wallet_db,
         pczt,
         None,
         Some(&VerifyingKey::build()),

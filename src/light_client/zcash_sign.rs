@@ -2,6 +2,7 @@ use std::error::Error;
 
 use eyre::eyre;
 use pczt::{Pczt, roles::low_level_signer::Signer};
+use rand::{Rng, thread_rng};
 use rand_core::{CryptoRng, RngCore};
 
 use halo2_proofs::pasta::group::ff::PrimeField;
@@ -9,11 +10,65 @@ use orchard::{
     primitives::redpallas::{self, SpendAuth},
     value::NoteValue,
 };
+use reddsa::frost::redpallas::keys::PublicKeyPackage;
+use safer_ffi::derive_ReprC;
 use zcash_primitives::transaction::{TxVersion, sighash_v5::v5_signature_hash};
 use zcash_primitives::transaction::{sighash::SignableInput, txid::TxIdDigester};
 
+use orchard::keys::{FullViewingKey, SpendValidatingKey, SpendingKey};
+use zcash_keys::keys::UnifiedFullViewingKey;
+
+/// The enumeration of known Zcash networks.
+#[derive_ReprC]
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct IndexedAlpha {
+    pub idx: usize,
+    pub alpha: safer_ffi::Vec<u8>,
+}
+
+impl IndexedAlpha {
+    pub fn new(idx: usize, alpha: Vec<u8>) -> Self {
+        Self {
+            idx,
+            alpha: alpha.into(),
+        }
+    }
+}
+
+/// New ufvk from spending key `sk` and public key package `pkp`
+pub fn ufvk_from_sk_pkp(sk: [u8; 32], pkp: &[u8]) -> eyre::Result<UnifiedFullViewingKey> {
+    let vk_bytes = PublicKeyPackage::deserialize(pkp)?
+        .verifying_key()
+        .serialize()?;
+    let ak = SpendValidatingKey::from_bytes(&vk_bytes).ok_or(eyre!("Invalid ak"))?;
+
+    let sk = SpendingKey::from_bytes(sk)
+        .into_option()
+        .ok_or(eyre!("invalid spend authorizing key"))?;
+
+    let fvk = FullViewingKey::from_sk_ak(&sk, ak.clone());
+    let ufvk = UnifiedFullViewingKey::from_orchard_fvk(fvk)?;
+
+    Ok(ufvk)
+}
+
+pub(crate) fn random_spending_key(rng: &mut impl RngCore) -> [u8; 32] {
+    let sk = loop {
+        let random_bytes = rng.r#gen::<[u8; 32]>();
+        let sk = SpendingKey::from_bytes(random_bytes).into_option();
+        if let Some(sk) = sk {
+            break *sk.to_bytes();
+        }
+    };
+
+    sk
+}
+
 /// Return the sighash and alphas (randomizers) from the PCZT.
-pub fn read_pczt_signining_inputs(pczt: &Pczt) -> eyre::Result<(Vec<u8>, Vec<(usize, Vec<u8>)>)> {
+pub fn read_pczt_signining_inputs(pczt_bytes: &[u8]) -> eyre::Result<(Vec<u8>, Vec<IndexedAlpha>)> {
+    let pczt = Pczt::parse(pczt_bytes).map_err(|err| eyre!("Failed to parse Pczt: {err:?}"))?;
+
     let sighash = match pczt.clone().into_effects() {
         None => Err(eyre!(
             "Not enough information to build the transaction's effects"
@@ -46,7 +101,10 @@ pub fn read_pczt_signining_inputs(pczt: &Pczt) -> eyre::Result<(Vec<u8>, Vec<(us
                 .filter_map(|(idx, a)| {
                     // TODO: improve dummy detection (check rk instead)
                     if a.spend().value().unwrap() != NoteValue::default() {
-                        Some((idx, a.spend().alpha().unwrap().to_repr().to_vec()))
+                        Some(IndexedAlpha::new(
+                            idx,
+                            a.spend().alpha().unwrap().to_repr().to_vec(),
+                        ))
                     } else {
                         None
                     }
@@ -60,10 +118,12 @@ pub fn read_pczt_signining_inputs(pczt: &Pczt) -> eyre::Result<(Vec<u8>, Vec<(us
 }
 
 pub fn write_pczt_signing_outputs(
-    pczt: &Pczt,
+    pczt_bytes: &[u8],
     sighash: &[u8],
     signatures: &[Vec<u8>],
 ) -> eyre::Result<Vec<u8>> {
+    let pczt = Pczt::parse(pczt_bytes).map_err(|err| eyre!("Failed to parse Pczt: {err:?}"))?;
+
     let signatures = signatures
         .iter()
         .map(|sig_bytes| {

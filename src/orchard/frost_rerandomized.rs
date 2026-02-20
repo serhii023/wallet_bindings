@@ -6,6 +6,7 @@ use frost_core::{
     serialization::SerializableScalar,
 };
 use frost_rerandomized::{RandomizedParams, Randomizer, frost_core::VerifyingKey};
+use futures::io::Empty;
 use rand::thread_rng;
 use reddsa::frost::redpallas::{
     Identifier, PallasBlake2b512,
@@ -20,6 +21,7 @@ use std::{
     clone,
     collections::{BTreeMap, HashMap},
 };
+use tracing::error;
 
 use crate::errors::ExecutionError;
 
@@ -58,7 +60,7 @@ impl TryFrom<&SecretShare> for keys::SecretShare {
 
 #[derive_ReprC]
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct KeyPackage {
     bytes: safer_ffi::Vec<u8>,
 }
@@ -86,16 +88,25 @@ impl TryFrom<&KeyPackage> for keys::KeyPackage {
 #[derive(Debug)]
 /// Wrapper for orchard signing key
 pub struct TrustedShares {
-    key_packages: safer_ffi::Vec<IdentifiedData<KeyPackage>>,
-    public_key_package: safer_ffi::Vec<u8>,
+    pub key_packages: safer_ffi::Vec<IdentifiedData<KeyPackage>>,
+    pub public_key_package: safer_ffi::Vec<u8>,
+}
+
+impl Default for TrustedShares {
+    fn default() -> Self {
+        Self {
+            key_packages: safer_ffi::Vec::EMPTY,
+            public_key_package: safer_ffi::Vec::EMPTY,
+        }
+    }
 }
 
 #[derive_ReprC]
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct IdentifiedData<T> {
-    identifier: [u8; 32],
-    data: T,
+    pub identifier: [u8; 32],
+    pub data: T,
 }
 
 impl<T> IdentifiedData<T> {
@@ -128,6 +139,15 @@ impl<T> IdentifiedData<T> {
 impl<T> From<(&Identifier, T)> for IdentifiedData<T> {
     fn from((id, data): (&Identifier, T)) -> Self {
         Self::new(id, data)
+    }
+}
+
+impl<T: Default> Default for IdentifiedData<T> {
+    fn default() -> Self {
+        Self {
+            identifier: Default::default(),
+            data: Default::default(),
+        }
     }
 }
 
@@ -392,7 +412,10 @@ pub fn frost_randomized_verify(
     match internal_frost_randomized_verify(message, group_signature, public_key_package, randomizer)
     {
         Ok(_) => 0,
-        Err(err) => c_int::from(err),
+        Err(err) => {
+            error!(error = ?err);
+            return c_int::from(err);
+        }
     }
 }
 

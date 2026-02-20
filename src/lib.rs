@@ -50,6 +50,11 @@ pub fn generate_headers() -> ::std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use eyre::eyre;
+    use frost_core::Field;
+    use frost_core::{Identifier};
+    use reddsa::frost::redpallas::PallasScalarField;
+    use reddsa::frost::redpallas::keys;
+    use reddsa::frost::redpallas::PallasBlake2b512;
     use safer_ffi::{char_p::char_p_ref, prelude::*};
     use std::{
         env,
@@ -145,46 +150,71 @@ mod tests {
         }
     }
 
-    // TODO: fix test
-    // #[test]
+    #[test]
     fn test_randomized_frost_for_pczt() -> eyre::Result<()> {
-        init_rust_logging(LogLevel::Info);
-
-        let max_signers = 5;
-        let min_signers = 3;
-        let network = light_client::handlers::Network::TestNetwork;
-
-        let (trusted_public_key_package, trusted_key_packages) =
-            examle_trusted_key_gen(max_signers, min_signers);
-        let sk = light_client::random_spending_key();
-        let mut ufvk = "".to_string().try_into().unwrap();
-        let err =
-            light_client::ufvk_from_sk_pkp(network, sk, &trusted_public_key_package, &mut ufvk);
-        assert_eq!(err, 0);
-        info!(ufvk = ?hex::encode(&ufvk.to_string()));
-
         dotenvy::dotenv().ok();
         init_rust_logging(LogLevel::Info);
+        let config = TestConfig::from_env()?;
 
-        let mut config = TestConfig::from_env()?;
-        config.encoded_ufvk = ufvk.to_string();
-        info!(config = ?config);
+        let public_key_package: safer_ffi::Vec<u8> = hex::decode(env::var("PUBLIC_KEY_PACKAGE")?)?.into();
+        let key_package1_hex = env::var("KEY_PACKAGE1")?;
+        let key_package2_hex = env::var("KEY_PACKAGE2")?;
+        let key_package3_hex = env::var("KEY_PACKAGE3")?;
 
+        let key_package1 = keys::KeyPackage::deserialize(&hex::decode(key_package1_hex)?)?;
+        let key_package2 = keys::KeyPackage::deserialize(&hex::decode(key_package2_hex)?)?;
+        let key_package3 = keys::KeyPackage::deserialize(&hex::decode(key_package3_hex)?)?;
+
+        let key_packages = vec![
+            IdentifiedData::new(&Identifier::try_from(1)?, KeyPackage::try_from(&key_package1)?),
+            IdentifiedData::new(&Identifier::try_from(2)?, KeyPackage::try_from(&key_package2)?),
+            IdentifiedData::new(&Identifier::try_from(3)?, KeyPackage::try_from(&key_package3)?),
+        ];
+        
         let pczt = create_pczt(&config)?;
 
-        let mut sighash = safer_ffi::Vec::EMPTY;
-        let mut alphas = safer_ffi::Vec::EMPTY;
-        let res = light_client::read_pczt_signining_inputs(&pczt, &mut sighash, &mut alphas);
-        assert_eq!(res, 0);
+        let (sighash, alphas) = {
+
+            let mut sighash = safer_ffi::Vec::EMPTY;
+            let mut alphas = safer_ffi::Vec::EMPTY;
+            let res = light_client::read_pczt_signining_inputs(&pczt, &mut sighash, &mut alphas);
+            assert_eq!(res, 0);
+
+            (sighash, alphas)
+        };
 
         info!(sighash = ?sighash);
+ 
+        let r = &*alphas[0].alpha.to_vec();
+        let randomizer: [u8; 32] = r.try_into()?;
 
         info!("Sign with trusted setup...");
         let signature = randomized_frost_sign_verify(
-            trusted_public_key_package,
-            trusted_key_packages,
+            public_key_package,
+            key_packages,
             &sighash,
+            randomizer
         )?;
+
+
+        let mut signed_pczt = safer_ffi::Vec::EMPTY;
+        light_client::write_pczt_signing_outputs(&pczt, &sighash, &vec![signature].into(), &mut signed_pczt);
+
+        let host = std::ffi::CString::new(config.host.clone())?;
+        let host = char_p::Ref::try_from(host.as_c_str())?;
+
+        let db_path = std::ffi::CString::new(format!("{}/{}", TEST_DIR, config.db_path.clone()))?;
+        let db_path = char_p::Ref::try_from(db_path.as_c_str())?;
+
+        let network = light_client::handlers::Network::TestNetwork;
+
+        light_client::broadcast_transaction(
+            &signed_pczt,
+            host,
+            config.port,
+            db_path,
+            network,
+        );
 
         // DKGPublicKeyPackage, DKGKeyPackages := ExamplekeyGen(max_signers, min_signers)
         // info!("Sign with DKG keys...");
@@ -204,7 +234,8 @@ mod tests {
             examle_trusted_key_gen(max_signers, min_signers);
         info!("Sign with trusted setup...");
         let msg = b"Some message";
-        randomized_frost_sign_verify(trusted_public_key_package, trusted_key_packages, msg)?;
+        let randomizer = crate::orchard::frost_rerandomized::frost_randomized_new_randomizer();
+        randomized_frost_sign_verify(trusted_public_key_package, trusted_key_packages, msg, randomizer)?;
 
         // DKGPublicKeyPackage, DKGKeyPackages := ExamplekeyGen(max_signers, min_signers)
         // info!("Sign with DKG keys...");
@@ -235,6 +266,7 @@ mod tests {
         public_key_package: safer_ffi::Vec<u8>,
         key_packages: Vec<IdentifiedData<KeyPackage>>,
         msg: &[u8],
+        randomizer: [u8; 32],
     ) -> eyre::Result<safer_ffi::Vec<u8>> {
         let mut sig_nonces = Vec::with_capacity(key_packages.len());
         let mut sig_commitments = Vec::with_capacity(key_packages.len());
@@ -271,8 +303,6 @@ mod tests {
             &mut signing_package,
         );
         assert_eq!(err, 0, "Fail to create new signing package for signature");
-
-        let randomizer = crate::orchard::frost_rerandomized::frost_randomized_new_randomizer();
 
         let mut signature_packages = Vec::new();
         let mut identified_signature_packages = Vec::new();
@@ -327,7 +357,6 @@ mod tests {
         init_rust_logging(LogLevel::Info);
 
         let config = TestConfig::from_env()?;
-        info!(config = ?config);
 
         let pczt = create_pczt(&config)?;
 

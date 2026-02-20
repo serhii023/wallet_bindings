@@ -62,7 +62,7 @@ impl TryFrom<&SecretShare> for keys::SecretShare {
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct KeyPackage {
-    bytes: safer_ffi::Vec<u8>,
+    pub bytes: safer_ffi::Vec<u8>,
 }
 
 impl TryFrom<&keys::KeyPackage> for KeyPackage {

@@ -264,15 +264,10 @@ mod tests {
             sig_identified_commitments.push(sig_identified_commitment);
         }
 
-        let message_slice = safer_ffi::slice::slice_raw {
-            ptr: NonNull::new(msg.to_vec().as_mut_ptr()).ok_or(eyre!("Pointer doesn't exist"))?,
-            len: msg.len(),
-        };
-
         let mut signing_package = safer_ffi::Vec::EMPTY;
         let err = crate::orchard::frost_rerandomized::frost_randomized_signing_package_new(
-            sig_identified_commitments.into(),
-            message_slice,
+            &sig_identified_commitments.into(),
+            &msg.to_vec().into(),
             &mut signing_package,
         );
         assert_eq!(err, 0, "Fail to create new signing package for signature");
@@ -313,12 +308,8 @@ mod tests {
         );
         assert_eq!(err, 0);
 
-        let message_slice = safer_ffi::slice::slice_raw {
-            ptr: NonNull::new(msg.to_vec().as_mut_ptr()).ok_or(eyre!("Pointer doesn't exist"))?,
-            len: msg.len(),
-        };
         let err = crate::orchard::frost_rerandomized::frost_randomized_verify(
-            message_slice,
+            &msg.to_vec().into(),
             &aggregated_signature,
             &public_key_package,
             &randomizer,

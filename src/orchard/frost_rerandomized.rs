@@ -268,8 +268,9 @@ fn inner_frost_randomized_commit(
 #[ffi_export]
 /// Round1: Generate signing package for the given message and user secret share.
 pub fn frost_randomized_signing_package_new(
-    signing_commitments: safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
-    message: slice_raw<u8>,
+    signing_commitments: &safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
+    // message: slice_raw<u8>,
+    message: &safer_ffi::Vec<u8>,
     signature_package: &mut safer_ffi::Vec<u8>,
 ) -> c_int {
     match inner_frost_randomized_signing_package_new(signing_commitments, message) {
@@ -282,8 +283,8 @@ pub fn frost_randomized_signing_package_new(
 }
 
 fn inner_frost_randomized_signing_package_new(
-    signing_commitments: safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
-    message: slice_raw<u8>,
+    signing_commitments: &safer_ffi::Vec<IdentifiedData<safer_ffi::Vec<u8>>>,
+    message: &safer_ffi::Vec<u8>,
 ) -> Result<Vec<u8>> {
     let mut comms = BTreeMap::new();
     for entry in signing_commitments.as_ref().iter() {
@@ -292,7 +293,7 @@ fn inner_frost_randomized_signing_package_new(
         comms.insert(id, commitment);
     }
 
-    let package = OrchardSigningPackage::new(comms, &unsafe { message.as_ref() });
+    let package = OrchardSigningPackage::new(comms, &message.to_vec());
 
     Ok(package.serialize()?)
 }
@@ -404,7 +405,7 @@ fn inner_frost_randomized_aggregate(
 #[ffi_export]
 /// Round2: Generate user's signature share.
 pub fn frost_randomized_verify(
-    message: slice_raw<u8>,
+    message: &safer_ffi::Vec<u8>,
     group_signature: &safer_ffi::Vec<u8>,
     public_key_package: &safer_ffi::Vec<u8>,
     randomizer: &[u8; 32],
@@ -420,7 +421,7 @@ pub fn frost_randomized_verify(
 }
 
 fn internal_frost_randomized_verify(
-    message: slice_raw<u8>,
+    message: &safer_ffi::Vec<u8>,
     group_signature: &safer_ffi::Vec<u8>,
     public_key_package: &safer_ffi::Vec<u8>,
     randomizer: &[u8; 32],
@@ -434,7 +435,7 @@ fn internal_frost_randomized_verify(
 
     if randomizer_params
         .randomized_verifying_key()
-        .verify(&unsafe { message.as_ref() }, &signature)
+        .verify(&message.to_vec(), &signature)
         .is_err()
     {
         return Err(ExecutionError::Verification);

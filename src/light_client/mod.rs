@@ -226,7 +226,7 @@ pub fn write_pczt_signing_outputs(
 }
 
 #[ffi_export]
-pub fn broadcast_transaction(
+pub fn prove_and_broadcast_transaction(
     serialized_pczt: &safer_ffi::Vec<u8>,
     host: char_p::Ref<'_>,
     port: u16,
@@ -235,7 +235,7 @@ pub fn broadcast_transaction(
 ) -> c_int {
     let server = Server::new(host.to_str(), port);
 
-    match RUNTIME.block_on(handlers::broadcast_transaction(
+    match RUNTIME.block_on(handlers::prove_and_broadcast_transaction(
         server,
         &serialized_pczt.to_vec(),
         db_path.to_str(),

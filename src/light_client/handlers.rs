@@ -1,9 +1,10 @@
 use eyre::eyre;
 use futures::{TryStreamExt, future::err};
-use pczt::Pczt;
+use pczt::{Pczt, roles::prover::Prover};
 use prost::Message;
 use rand_core::OsRng;
 use safer_ffi::derive_ReprC;
+use zcash_proofs::prover::LocalTxProver;
 use std::{
     fmt,
     path::{Path, PathBuf},
@@ -216,7 +217,7 @@ pub(crate) async fn create_orchard_transaction<F: AsRef<Path>, P: Parameters>(
     Ok(pczt)
 }
 
-pub(crate) async fn broadcast_transaction<'a, P: Parameters + Send + 'static, F: AsRef<Path>>(
+pub(crate) async fn prove_and_broadcast_transaction<'a, P: Parameters + Send + 'static, F: AsRef<Path>>(
     server: Server<'a>,
     pczt_bytes: &[u8],
     path: F,
@@ -225,6 +226,16 @@ pub(crate) async fn broadcast_transaction<'a, P: Parameters + Send + 'static, F:
     let mut client = server.connect_direct().await?;
     let pczt = Pczt::parse(pczt_bytes).map_err(|err| eyre!("Failed to parse Pczt: {err:?}"))?;
     let mut wallet_db = WalletDb::for_path(path, params, SystemClock, rand::rngs::OsRng)?;
+
+
+    let prover = LocalTxProver::bundled();
+    let pczt = Prover::new(pczt)
+        .create_orchard_proof(&orchard::circuit::ProvingKey::build())
+        .map_err(|e| eyre!("Failed to create Orchard proof: {:?}", e))?
+        .create_sapling_proofs(&prover, &prover)
+        .map_err(|e| eyre!("Failed to create Sapling proofs: {:?}", e))?
+        .finish();
+
 
     // Extract the final transaction and store it in wallet_db
     let txid = extract_and_store_transaction_from_pczt::<_, ()>(

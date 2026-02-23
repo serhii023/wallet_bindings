@@ -151,6 +151,7 @@ mod tests {
     }
 
     #[test]
+    /// Create a new transaction, sign it, prove and send to the test network.
     fn test_randomized_frost_for_pczt() -> eyre::Result<()> {
         dotenvy::dotenv().ok();
         init_rust_logging(LogLevel::Info);
@@ -171,7 +172,7 @@ mod tests {
             IdentifiedData::new(&Identifier::try_from(3)?, KeyPackage::try_from(&key_package3)?),
         ];
         
-        let pczt = create_pczt(&config)?;
+        let pczt = sync_then_create_pczt(&config)?;
 
         let (sighash, alphas) = {
 
@@ -208,7 +209,7 @@ mod tests {
 
         let network = light_client::handlers::Network::TestNetwork;
 
-        light_client::broadcast_transaction(
+        light_client::prove_and_broadcast_transaction(
             &signed_pczt,
             host,
             config.port,
@@ -224,6 +225,7 @@ mod tests {
     }
 
     #[test]
+    /// Create frost packages, sign and check signature.
     fn test_randomized_frost() -> eyre::Result<()> {
         init_rust_logging(LogLevel::Info);
 
@@ -244,6 +246,7 @@ mod tests {
         Ok(())
     }
 
+    /// Generate fromst paramethers by the trusted key gen
     fn examle_trusted_key_gen(
         max_signers: u16,
         min_signers: u16,
@@ -262,6 +265,7 @@ mod tests {
         return (pk, key_packages);
     }
 
+    /// Sign passed message and verify it.
     fn randomized_frost_sign_verify(
         public_key_package: safer_ffi::Vec<u8>,
         key_packages: Vec<IdentifiedData<KeyPackage>>,
@@ -351,6 +355,7 @@ mod tests {
         Ok(aggregated_signature)
     }
 
+    /// Cretate wallet, sync and create pczt.
     #[test]
     fn test_lightwallet_workflow() -> eyre::Result<()> {
         dotenvy::dotenv().ok();
@@ -358,7 +363,7 @@ mod tests {
 
         let config = TestConfig::from_env()?;
 
-        let pczt = create_pczt(&config)?;
+        let pczt = sync_then_create_pczt(&config)?;
 
         let mut sighash = safer_ffi::Vec::EMPTY;
         let mut alphas = safer_ffi::Vec::EMPTY;
@@ -370,7 +375,7 @@ mod tests {
         Ok(())
     }
 
-    fn create_pczt(config: &TestConfig) -> eyre::Result<safer_ffi::Vec<u8>> {
+    fn sync_then_create_pczt(config: &TestConfig) -> eyre::Result<safer_ffi::Vec<u8>> {
         let _test_dir = TestDir::new(TEST_DIR)?;
 
         let db_path = std::ffi::CString::new(format!("{}/{}", TEST_DIR, config.db_path.clone()))?;
